@@ -1,0 +1,78 @@
+#!/usr/bin/env python
+from gwpy.timeseries import TimeSeriesDict
+from gwpy.segments import Segment,SegmentList, DataQualityFlag,DataQualityDict
+from glue.datafind import GWDataFindHTTPConnection
+from numpy import *
+import argparse
+
+parser = argparse.ArgumentParser(description='Generate veto XML from 16 Hz FEC overflow channels.')
+parser.add_argument('-s','--start', type=int, help='GPS start time.', required=True)
+parser.add_argument('-e','--end', type=int, help='GPS end time', required=True)
+parser.add_argument('-r','--stride', type=int, default=4*3600,
+                    help='Number of seconds of data to grab at a time')
+parser.add_argument('-i', '--ifo', type=str, help='IFO', required=True)
+parser.add_argument('-c', '--config', type=str, required=True,
+                    help='Configuration file. Consists of two space-separated '
+                    'columns. First is overflow channel, second is flag name, '
+                    'neither with ifo.\n'
+                    'Ex: FEC-8_ADC_OVERFLOW_0_12 DCH-OMC_DCPD_A_ADC_OVERFLOW')
+parser.add_argument('-n','--nds',action='store_true',
+                    help='Use NDS rather than frames.')
+parser.add_argument('-o','--output',type=str,help='Output file.',required=True)
+
+args = parser.parse_args()
+
+# Create short names for important args
+ifo = args.ifo
+gps_start,gps_end = args.start,args.end
+
+# Read the config file, create full channel and flag names
+config = [line.split() for line in open(args.config)]
+chans = ['%s:%s' % (ifo,line[0]) for line in config]
+flagnames = ['%s:%s:1' % (ifo,line[1]) for line in config]
+# List of lists to store overflow times
+all_overflows = [list() for line in config]
+
+# Break the data into chunks so we don't request too much at once
+chunks = [(tt, tt+args.stride)
+            for tt in xrange(gps_start, gps_end, args.stride)]
+chunks[-1] = (chunks[-1][0], gps_end)
+
+# Query datafind server
+# The error handling seems pretty twitchy, so if there's a problem
+# best to just fail and let the user debug it
+if not args.nds:
+    try:
+        df = GWDataFindHTTPConnection()
+        cache = df.find_frame_urls(ifo[0], '%s_R' % ifo,
+                                gps_start-4, gps_end+4,
+                                urltype='file')
+    except RuntimeError:
+        print "Unable to find frames. Consider using --nds"
+        exit(1)
+
+# Go through the chunks getting every channel and finding overflows
+# The overflow is reported one second + one 16 Hz sample later
+# So look at the middle of following second to find overflow this second
+for st,et in chunks:
+    print "Fetching data for", st, et
+    if args.nds:
+        datadict = TimeSeriesDict.fetch(chans, st+1, et+1)
+    else:
+        datadict = TimeSeriesDict.read(cache, chans, st+1, et+1)
+    
+    for chan, overflow in zip(chans, all_overflows):
+        data = (datadict[chan])[8::16].value
+        sats = nonzero(data)[0]
+        overflow.extend([st+idx for idx in sats])
+
+dqdict = DataQualityDict()
+known = SegmentList([Segment(gps_start,gps_end)])
+for flagname, overflow in zip(flagnames, all_overflows):
+    active = SegmentList([Segment(tt,tt+1) for tt in overflow])
+    new_flag = DataQualityFlag(name=flagname, active=active, known=known,
+                                isgood=False)
+    dqdict[flagname] = new_flag
+
+dqdict.write(args.output, format='ligolw')
+
