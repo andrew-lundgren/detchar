@@ -28,7 +28,7 @@ def filter_func(st, et):
 hoft_channel = '%s:GDS-CALIB_STRAIN' % args.ifo
 sci_flag = '%s:DMT-ANALYSIS_READY:1' % args.ifo
 
-output_fname = '%s-gating_SNR%u-%u-%u.txt' % (args.ifo, args.min_snr, args.start, args.end)
+output_fname = '%s-gating_SNR%u-%u-%u.txt' % (args.ifo, args.min_snr, args.start, args.end-args.start)
 fout = open(output_fname,'w')
 
 requested_segs = SegmentList([Segment(args.start, args.end)])
