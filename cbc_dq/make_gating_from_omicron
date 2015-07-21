@@ -1,0 +1,66 @@
+#! /usr/bin/env python
+from gwpy.table.lsctables import SnglBurstTable
+from gwpy.segments import DataQualityFlag, Segment, SegmentList
+import numpy
+import argparse
+
+dqsegdb_url = "https://dqsegdb5.phy.syr.edu"
+
+parser = argparse.ArgumentParser(description='Make a PyCBC gating file from Omicron triggers.')
+parser.add_argument('-i','--ifo', type=str, help='IFO', required=True)
+parser.add_argument('-s','--start', type=int, help='GPS start time.', required=True)
+parser.add_argument('-e','--end', type=int, help='GPS end time', required=True)
+parser.add_argument('-m','--min-snr', type=int, help='Min SNR cut', default=300)
+parser.add_argument('-r','--stride', type=int, help='Number of seconds to query at a time', default=500)
+parser.add_argument('-z','--zeros', type=float, help='Half-width of zeros in window (sec)', default=0.25)
+parser.add_argument('-p','--pad', type=float, help='Width of padding (sec)', default=0.25)
+
+args = parser.parse_args()
+
+def chunk_through_segment(seg, chunk_size):
+    temp = range(int(seg[0]), int(seg[1]), chunk_size)
+    temp.append(int(seg[1]))
+    return zip(temp[:-1], temp[1:])
+
+def filter_func(st, et):
+    return lambda x: st <= x.get_peak() < et
+
+hoft_channel = '%s:GDS-CALIB_STRAIN' % args.ifo
+sci_flag = '%s:DMT-ANALYSIS_READY:1' % args.ifo
+
+output_fname = '%s-gating_SNR%u-%u-%u.txt' % (args.ifo, args.min_snr, args.start, args.end)
+fout = open(output_fname,'w')
+
+requested_segs = SegmentList([Segment(args.start, args.end)])
+sci_segs = DataQualityFlag.query_dqsegdb(sci_flag, args.start, args.end,
+                                            url=dqsegdb_url)
+
+unknown_segs = requested_segs - sci_segs.known
+
+# Warn if science segments weren't known for any requested time
+# Change this to logging or at least stderr?
+if abs(unknown_segs):
+    print "Warning: %s is unknown for following segments" % sci_flag
+    for seg in unknown_segs:
+        print '\t%u %u' % (seg[0],seg[1])
+    fout.write("# Warning: %s is unknown for following segments\n" % sci_flag)
+    for seg in unknown_segs:
+        fout.write('# %u %u\n' % (seg[0],seg[1]))
+
+# Loop through each science segment, stride through the data in chunks
+# FIXME: Add a test that there are no gaps without triggers
+
+trigs_lst = []
+for seg in sci_segs.active:
+    for st,et in chunk_through_segment(seg, args.stride):
+        trigs = SnglBurstTable.fetch(hoft_channel, 'omicron', st, et,
+                                        filt=filter_func(st,et))
+
+        trigs_lst.extend([float(trig.get_peak())
+                            for trig in trigs
+                            if trig.snr > args.min_snr])
+fout.write('\n'.join(['%10.4f %.4f %.4f' % (x, args.zeros, args.pad)
+                        for x in trigs_lst]))
+fout.write('\n')
+fout.close()
+
