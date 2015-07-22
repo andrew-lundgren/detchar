@@ -1,0 +1,88 @@
+#!/usr/bin/env python
+from gwpy.timeseries import TimeSeriesDict
+from gwpy.segments import Segment,SegmentList, DataQualityFlag,DataQualityDict
+from glue.datafind import GWDataFindHTTPConnection
+from numpy import *
+import argparse
+
+parser = argparse.ArgumentParser(description='Generate veto XML from 16 Hz FEC overflow channels.')
+parser.add_argument('-i', '--ifo', type=str, help='IFO', required=True)
+parser.add_argument('-s','--start', type=int, help='GPS start time.', required=True)
+parser.add_argument('-e','--end', type=int, help='GPS end time', required=True)
+parser.add_argument('-r','--stride', type=int, default=4*3600,
+                    help='Number of seconds of data to grab at a time')
+parser.add_argument('-c', '--config', type=str, required=True,
+                    help='Configuration file consisting of space-separated '
+                    'columns. First column is overflow channel. '
+                    'Others are DCUID number, kind (ADC or DAC), '
+                    'card number, and channel number (from Simulink file). '
+                    'Ex: DCH-OMC_DCPD_A_ADC_OVERFLOW 8 ADC 0 12')
+parser.add_argument('-o','--output',type=str,help='Output file.',required=True)
+
+args = parser.parse_args()
+
+# Create short names for important args
+ifo = args.ifo
+gps_start,gps_end = args.start,args.end
+
+def chunk_through_segment(seg, chunk_size):
+    temp = range(int(seg[0]), int(seg[1]), chunk_size)
+    temp.append(int(seg[1]))
+    return zip(temp[:-1], temp[1:])
+
+def overflow_channame(line):
+    return '%s:FEC-%u_%s_OVERFLOW_ACC_%u_%u' % \
+            (ifo, int(line[0]), line[1], int(line[2]), int(line[3]))
+# Read the config file, create full channel and flag names
+config = [line.split() for line in open(args.config)]
+chans = [overflow_channame(line[1:]) for line in config]
+flagnames = ['%s:%s:1' % (ifo,line[0]) for line in config]
+# List of lists to store overflow times
+all_overflows = [list() for line in config]
+
+# Query datafind server
+# The error handling seems pretty twitchy, so if there's a problem
+# best to just fail and let the user debug it
+df = GWDataFindHTTPConnection()
+cache = df.find_frame_urls(ifo[0], '%s_R' % ifo, urltype='file',
+                            gpsstart=gps_start, gpsend=gps_end)
+
+requested_data = SegmentList([Segment(gps_start, gps_end)])
+known_data = cache.to_segmentlistdict()[ifo[0]]
+known_data = requested_data & known_data
+
+unknown = []
+for seg in known_data:
+    # Remember sample at end of chunk
+    last_sample = dict([(chan, None) for chan in chans])
+    for st,et in chunk_through_segment(seg, args.stride):
+        print "Fetching data for", st, et
+        try:
+            datadict = TimeSeriesDict.read(cache, chans, st, et)
+        except RuntimeError:
+            unknown.append(Segment(st,et))
+            print "Unable to get data - unknown segment", st, et
+            continue
+        for chan, overflow in zip(chans, all_overflows):
+            dt = 1./float(datadict[chan].sample_rate.value)
+            data = (datadict[chan]).value
+            if last_sample[chan] and data[0] > last_sample[chan]:
+                overflow.append(Segment(st-dt,st+dt))
+            sats = nonzero(data[1:]-data[:-1])[0]
+            overflow.extend([Segment(st+dt*idx,st+dt*(idx+2)) for idx in sats])
+            last_sample[chan] = data[-1]
+
+known = known_data - SegmentList(unknown)
+known.coalesce()
+
+# Convert this to writing DQ triggers
+
+for flagname, overflow in zip(flagnames, all_overflows):
+    print "=== %s ===" % flagname
+    for seg in known:
+        print seg
+    temp = SegmentList(overflow)
+    temp.coalesce()
+    for tt in temp:
+        print "%10.4f %10.4f" % (tt[0],tt[1])
+
