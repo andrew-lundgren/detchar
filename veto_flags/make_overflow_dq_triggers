@@ -17,7 +17,8 @@ parser.add_argument('-c', '--config', type=str, required=True,
                     'Others are DCUID number, kind (ADC or DAC), '
                     'card number, and channel number (from Simulink file). '
                     'Ex: DCH-OMC_DCPD_A_ADC_OVERFLOW 8 ADC 0 12')
-parser.add_argument('-o','--output',type=str,help='Output file.',required=True)
+parser.add_argument('-o','--output',type=str,help='Output file. If not present,'
+                            ' human-readable information is printed to screen.')
 
 args = parser.parse_args()
 
@@ -58,7 +59,7 @@ for seg in known_data:
     for st,et in chunk_through_segment(seg, args.stride):
         print "Fetching data for", st, et
         try:
-            datadict = TimeSeriesDict.read(cache, chans, st, et)
+            datadict = TimeSeriesDict.read(cache, chans, st, et, nproc=4)
         except RuntimeError:
             unknown.append(Segment(st,et))
             print "Unable to get data - unknown segment", st, et
@@ -75,14 +76,22 @@ for seg in known_data:
 known = known_data - SegmentList(unknown)
 known.coalesce()
 
-# Convert this to writing DQ triggers
+# FIXME: Convert this to writing DQ triggers
+if not args.output:
+    for flagname, overflow in zip(flagnames, all_overflows):
+        print "\n=== %s ===" % flagname
+        temp = SegmentList(overflow)
+        temp.coalesce()
+        for tt in temp:
+            print " %10.4f %10.4f" % (tt[0],tt[1])
+    exit()
 
+dqdict = DataQualityDict()
 for flagname, overflow in zip(flagnames, all_overflows):
-    print "=== %s ===" % flagname
-    for seg in known:
-        print seg
-    temp = SegmentList(overflow)
-    temp.coalesce()
-    for tt in temp:
-        print "%10.4f %10.4f" % (tt[0],tt[1])
+    active = SegmentList(overflow)
+    new_flag = DataQualityFlag(name=flagname, active=active, known=known,
+                                isgood=False)
+    dqdict[flagname] = new_flag
+
+dqdict.write(args.output, format='ligolw')
 
