@@ -1,0 +1,74 @@
+#!/usr/bin/env python
+from gwpy.table.lsctables import SnglBurstTable
+from gwpy.time import tconvert
+from glob import glob
+from time import sleep
+from os import mkdir
+import os.path
+
+ifo = 'H1'
+dmt_trig_loc="/gds-%s/dmt/triggers/%s-Omega_hoft" % (ifo.lower(), ifo[0])
+plot_path = os.path.expanduser('~/public_html/RollingOmega/')
+plot_dest = plot_path+'plot.png'
+html_dest = plot_path+'index.html'
+
+try:
+    mkdir(plot_path)
+except OSError:
+    pass
+
+# Configuration options for timing
+time_step = 10 # seconds to wait before plotting again
+latency = 150 # time to look back for data
+plot_length = 180 # number of seconds of triggers to plot
+
+def first5(tt):
+    return int(1.e-5*tt)
+
+def fname_to_time(fname):
+    temp = os.path.split(fname)[1]
+    temp = (temp.split('.')[0]).split('-')
+    f_ts = int(temp[-2])
+    return (f_ts, f_ts + int(temp[-1]))
+
+def time_tester(t1, t2):
+    def temp_func(fname):
+        ft1, ft2 = fname_to_time(fname)
+        return ft1 <= t2 and ft2 >= t1
+    return temp_func
+
+# Note: this fails a bit when the first five digits change
+def find_data(t1, t2):
+    print "Finding data for", t1, t2
+    tstem = first5(t1)
+    fnames = glob('%s/%u/*.xml' % (dmt_trig_loc,tstem))
+    need_file = time_tester(t1,t2)
+    return [fname for fname in fnames if need_file(fname)]
+
+# Write simple html page
+html=open(html_dest,'w')
+html.write('<!DOCTYPE html>\n')
+html.write('<head><meta http-equiv="refresh" content="%u"></head>\n' % time_step)
+html.write('<html>\n<body>\n')
+html.write('<img src="plot.png" width="1200" height="600">\n')
+html.write('</body>\n</html>\n')
+html.close()
+
+
+while True:
+    ct = int(tconvert('now'))
+    st = ct-latency-plot_length
+    et = ct-latency
+    fnames = find_data(st,et)
+    events = SnglBurstTable.read(fnames, format='sngl_burst')
+    plot = events.plot('time', 'central_freq', color='snr', edgecolor='none', epoch=st)
+    plot.set_xlim(st,et)
+    plot.set_ylim(30.,2048.)
+    plot.set_title('%s h(t) Omega triggers' % (ifo,))
+    plot.set_ylabel('Frequency (Hz)')
+    plot.set_yscale('log')
+    if len(events):
+        plot.add_colorbar(clim=[5, 20])
+    plot.savefig(plot_dest)
+    sleep(time_step)
+
