@@ -5,12 +5,18 @@ from glob import glob
 from time import sleep
 from os import mkdir
 import os.path
+import sys
 
-ifo = 'H1'
+if len(sys.argv) != 2:
+    print "Only argument is IFO"
+    exit()
+ifo = sys.argv[1]
 dmt_trig_loc="/gds-%s/dmt/triggers/%s-Omega_hoft" % (ifo.lower(), ifo[0])
 plot_path = os.path.expanduser('~/public_html/RollingOmega/')
 plot_dest = plot_path+'plot.png'
 html_dest = plot_path+'index.html'
+
+print "Plot destination is", plot_path
 
 try:
     mkdir(plot_path)
@@ -39,7 +45,6 @@ def time_tester(t1, t2):
 
 # Note: this fails a bit when the first five digits change
 def find_data(t1, t2):
-    print "Finding data for", t1, t2
     tstem = first5(t1)
     fnames = glob('%s/%u/*.xml' % (dmt_trig_loc,tstem))
     need_file = time_tester(t1,t2)
