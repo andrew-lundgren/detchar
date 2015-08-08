@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 from gwpy.segments import Segment,SegmentList, DataQualityFlag
+from glue.lal import Cache
+
 import argparse
 from glob import glob
 from os.path import basename
@@ -25,17 +27,17 @@ else:
 covered_segs = []
 file_lst = glob(args.glob)
 print len(file_lst), "files found"
-for fpath in file_lst:
-    fname = basename(fpath)
-    fname = fname.split('.')[0]
-    split_name = fname.split('-')
-    fstart, fdur = int(split_name[-2]), int(split_name[-1])
-    covered_segs.append(Segment(fstart, fstart+fdur))
-covered_segs = SegmentList(covered_segs)
-covered_segs.coalesce()
-
-print "Covered", abs(covered_segs), len(covered_segs)
-print "Requested", abs(desired_segs), len(desired_segs)
+cache = Cache.from_urls(file_lst)
+seglstdct = cache.to_segmentlistdict()
+if len(seglstdct.keys()) == 1:
+    covered_segs = seglstdct.values()[0]
+    covered_segs.coalesce()
+elif not seglstdct.keys():
+    print "Files do not cover any IFO"
+    exit()
+else:
+    print "Files cover multiple IFOs:", ", ".join(seglstdct.keys())
+    exit(1)
 
 # Check what's not covered that should be
 missing_segs = desired_segs - covered_segs
