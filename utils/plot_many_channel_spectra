@@ -1,0 +1,56 @@
+#!/usr/bin/env python
+from gwpy.timeseries import TimeSeriesDict
+from glue import datafind
+import argparse
+
+parser = argparse.ArgumentParser(description='Make a PDF containing spectra of many channels')
+parser.add_argument('-s','--start', type=int, required=True,
+                        help='GPS start time.')
+parser.add_argument('-d','--duration', type=int, required=True,
+                        help='Duration of data to use.')
+parser.add_argument('-c', '--channels', type=str, required=True,
+                        help='Text file containing list of channels in the '
+                            'first column (e.g., the output of FrChannels).')
+parser.add_argument('-f','--frame', type=str,
+                        help='Do a datafind for this frame type. If not '
+                            'provided, use NDS to get data.')
+parser.add_argument('-o','--output', type=str, default='many_channels.pdf',
+                        help='Output filename (pdf).')
+parser.add_argument('--fftlen', type=float, default=4.,
+                        help='Length of FFT (sec), default 4.')
+parser.add_argument('--overlap', type=float, default=0.75,
+                        help='Fractional overlap of FFT, default 0.75.')
+
+args = parser.parse_args()
+
+st = args.start
+et = st+args.duration
+
+channels = [line.split()[0] for line in open(args.channels)]
+ifo = channels[0][:2]
+
+if args.frame:
+    conn = datafind.GWDataFindHTTPConnection()
+    cache = conn.find_frame_urls(ifo[0], args.frame, st, et, urltype='file')
+    data_dict = TimeSeriesDict.read(cache, channels, start=st, end=et, nproc=4)
+else:
+    data_dict = TimeSeriesDict.fetch(channels, st, et)
+
+from matplotlib import use
+use('Agg')
+from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.pyplot as plt
+
+with PdfPages(args.output) as pdf:
+    for chan, data in data_dict.iteritems():
+        print "Plotting", chan
+        my_asd = data.asd(args.fftlen,args.fftlen*args.overlap)
+        plt.figure()
+        plt.title(chan)
+        plt.loglog(my_asd.frequencies.value, my_asd.value)
+        plt.axvline(60.,c='y',ls=':')
+        plt.axvline(120.,c='y',ls=':')
+        plt.xlim(4., data.sample_rate.value/2.)
+        pdf.savefig()
+        plt.close()
+
