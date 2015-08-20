@@ -45,6 +45,8 @@ with PdfPages(args.output) as pdf:
         my_asd = data.asd(args.fftlen,args.fftlen*args.overlap)
         plt.figure()
         plt.title(chan)
+        plt.xlabel('Frequency [Hz]')
+        plt.xlabel('ASD [Counts/rt(Hz)]')
         plt.loglog(my_asd.frequencies.value, my_asd.value)
         plt.axvline(60.,c='y',ls=':')
         plt.axvline(120.,c='y',ls=':')
