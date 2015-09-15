@@ -4,7 +4,7 @@ from gwpy.segments import DataQualityFlag, Segment, SegmentList
 import numpy
 import argparse
 
-dqsegdb_url = "https://dqsegdb5.phy.syr.edu"
+dqsegdb_url = "https://segments.ligo.org"
 
 parser = argparse.ArgumentParser(description='Make a PyCBC gating file from Omicron triggers.')
 parser.add_argument('-i','--ifo', type=str, help='IFO', required=True)
