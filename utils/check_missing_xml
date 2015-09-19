@@ -6,7 +6,7 @@ import argparse
 from glob import glob
 from os.path import basename
 
-dqsegdb_url = "https://dqsegdb5.phy.syr.edu"
+dqsegdb_url = "https://segments.ligo.org"
 
 parser = argparse.ArgumentParser(description='Check whether a set of XML files covers an entire time.')
 parser.add_argument('-s','--start', type=int, help='GPS start time.', required=True)
