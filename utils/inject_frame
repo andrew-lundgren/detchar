@@ -1,0 +1,57 @@
+#!/usr/bin/env python
+from gwpy.timeseries import TimeSeries
+from pylal import Fr
+from numpy import *
+from os import mkdir
+import argparse
+
+parser = argparse.ArgumentParser(description='Add strain file to frame data')
+parser.add_argument('-i', '--ifo', type=str, help='IFO', required=True)
+parser.add_argument('-s', '--start', type=float, help='Start time of injection',
+                    required=True)
+parser.add_argument('-d', '--duration', type=int, help='Duration of data to produce', default=256)
+parser.add_argument('-f', '--inj-file', type=str,
+                    help='ASCII file of strain for injection', required=True)
+parser.add_argument('-a', '--scale', type=float, help='Scale factor',
+                    required=True)
+parser.add_argument('-o', '--outdir', type=str, help='Output directory',
+                    default='.')
+
+args = parser.parse_args()
+
+ifo = args.ifo
+inj_t = args.start
+dur = args.duration
+inj_file = args.inj_file
+scale_factor = args.scale
+
+st = int(inj_t) - dur/2
+et = st+dur
+
+source_chan = '%s:GDS-CALIB_STRAIN' % ifo
+
+inj_data = loadtxt(inj_file, dtype=float64)
+
+raw_data = TimeSeries.fetch(source_chan, st, et)
+srate = raw_data.sample_rate.value
+
+inj_idx = int((inj_t-st)*srate)
+print len(raw_data), len(inj_data), inj_idx
+
+tmp_data = raw_data.value
+for idx in xrange(len(inj_data)):
+    tmp_data[inj_idx+idx] += scale_factor*inj_data[idx]
+
+ddict = {'name': source_chan,
+            'data': tmp_data,
+            'start': st,
+            'dx': 1./float(srate)}
+
+if args.outdir is not '.':
+    try:
+        mkdir(args.outdir)
+    except OSError:
+        pass
+Fr.frputvect('%s/%s-%s_HOFT_INJ-%u-%u.gwf' % (args.outdir, ifo[0],ifo,st,dur),
+                                                [ddict])
+
