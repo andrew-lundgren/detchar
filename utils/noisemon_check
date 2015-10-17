@@ -78,18 +78,29 @@ with PdfPages(args.output) as pdf:
         plt.title('%s %s coherence of %s with %s' % (optic,level,
                                                         args.master,
                                                         args.noisemon))
-        for quad, (chan1, chan2) in zip(quadrants, channel_pairs):
-            data1 = data_dict[chan1]
-            data2 = data_dict[chan2]
+
+        try:
+            for quad, (chan1, chan2) in zip(quadrants, channel_pairs):
+                data1 = data_dict[chan1]
+                data2 = data_dict[chan2]
             
-            this_coh = data2.coherence(data1, args.fftlen,
-                                        args.fftlen*args.overlap)
-            plt.plot(this_coh.frequencies.value, this_coh.value, label=quad)
+                this_coh = data2.coherence(data1, args.fftlen,
+                                                    args.fftlen*args.overlap)
+
+                freqs = this_coh.frequencies.value
+                vals = this_coh.value
+                print quad, min(freqs), max(freqs), min(vals), max(vals)
+                plt.plot(this_coh.frequencies.value, this_coh.value, label=quad)
         
-        plt.xscale('log')
-        plt.ylim(0., 1.05)
-        plt.xlim(0.1, data1.sample_rate.value/2.)
-        plt.legend(loc="lower left")
+            plt.xscale('log')
+            plt.ylim(0., 1.05)
+            plt.xlim(0.1, data1.sample_rate.value/2.)
+            plt.legend(loc="lower left")
+        except:
+            print "Cannot plot %s, skipping" % quad
+            plt.close()
+            continue
+
         pdf.savefig()
         plt.close()
 
