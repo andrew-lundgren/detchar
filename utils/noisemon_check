@@ -1,0 +1,95 @@
+#!/usr/bin/env python
+from gwpy.timeseries import TimeSeriesDict
+from glue import datafind
+import argparse
+
+parser = argparse.ArgumentParser(description='Make a PDF with coherences between master and noisemon channels')
+parser.add_argument('-s','--start', type=int, required=True,
+                        help='GPS start time.')
+parser.add_argument('-d','--duration', type=int, required=True,
+                        help='Duration of data to use.')
+parser.add_argument('-i', '--ifo', type=str, required=True,
+                        help='IFO, i.e. H1 or L1')
+parser.add_argument('-c', '--channels', type=str, required=True,
+                        help='Text file containing two columns: optic and level'
+                            ' e.g. PRM M3 ')
+parser.add_argument('-f','--frame', type=str,
+                        help='Do a datafind for this frame type. If not '
+                            'provided, use NDS to get data.')
+parser.add_argument('-o','--output', type=str, default='many_channels.pdf',
+                        help='Output filename (pdf).')
+parser.add_argument('--fftlen', type=float, default=4.,
+                        help='Length of FFT (sec), default 4.')
+parser.add_argument('--overlap', type=float, default=0.75,
+                        help='Fractional overlap of FFT, default 0.75.')
+parser.add_argument('-m','--master', type=str, default='MASTER_OUT',
+                        help='Type of drive channel to use.')
+parser.add_argument('-n','--noisemon', type=str, default='NOISEMON',
+                        help='Type of monitor channel to use')
+
+args = parser.parse_args()
+
+st = args.start
+et = st+args.duration
+
+ifo = args.ifo
+channel_stem_lst = [line.split() for line in open(args.channels)]
+quadrants = ['LL','LR','UR','UL']
+
+if args.frame:
+    conn = datafind.GWDataFindHTTPConnection()
+    cache = conn.find_frame_urls(ifo[0], args.frame, st, et, urltype='file')
+else:
+    cache = None
+
+def make_channel_pairs(optic, level):
+    channel_pairs = []
+    prefix = '%s:SUS-%s_%s' % (ifo, optic, level)
+    for quadrant in quadrants:
+        channel_pairs.append(
+                    ("%s_%s_%s_DQ" % (prefix, args.master, quadrant),
+                        "%s_%s_%s_DQ" % (prefix, args.noisemon, quadrant)))
+    return channel_pairs
+
+def flatten(list_of_pairs):
+    result = []
+    for pair in list_of_pairs:
+        result.extend(list(pair))
+    return result
+
+def get_data(channel_pairs):
+    channels = flatten(channel_pairs)
+    if cache:
+        data_dict = TimeSeriesDict.read(cache, channels, start=st, end=et,
+                                        nproc=4)
+    else:
+        data_dict = TimeSeriesDict.fetch(channels, st, et)
+    return data_dict
+
+from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.pyplot as plt
+with PdfPages(args.output) as pdf:
+    for optic, level in channel_stem_lst:
+        print "Plotting", optic, level
+        channel_pairs = make_channel_pairs(optic, level)
+        data_dict = get_data(channel_pairs)
+
+        plt.figure()
+        plt.title('%s %s coherence of %s with %s' % (optic,level,
+                                                        args.master,
+                                                        args.noisemon))
+        for quad, (chan1, chan2) in zip(quadrants, channel_pairs):
+            data1 = data_dict[chan1]
+            data2 = data_dict[chan2]
+            
+            this_coh = data2.coherence(data1, args.fftlen,
+                                        args.fftlen*args.overlap)
+            plt.plot(this_coh.frequencies.value, this_coh.value, label=quad)
+        
+        plt.xscale('log')
+        plt.ylim(0., 1.05)
+        plt.xlim(0.1, data1.sample_rate.value/2.)
+        plt.legend(loc="lower left")
+        pdf.savefig()
+        plt.close()
+
