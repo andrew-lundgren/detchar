@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from gwpy.timeseries import TimeSeriesDict
+from numpy import std
 from glue import datafind
 import argparse
 
@@ -20,8 +21,12 @@ parser.add_argument('-o','--output', type=str, default='many_channels.pdf',
                         help='Output filename (pdf).')
 parser.add_argument('--fftlen', type=float, default=4.,
                         help='Length of FFT (sec), default 4.')
-parser.add_argument('--overlap', type=float, default=0.75,
-                        help='Fractional overlap of FFT, default 0.75.')
+parser.add_argument('--overlap', type=float, default=0.5,
+                        help='Fractional overlap of FFT, default 0.5.')
+parser.add_argument('--fmin', type=float,
+                        help='Minimum frequency to plot, default 1/fftlen')
+parser.add_argument('--fmax', type=float, default=1024.,
+                        help='Maximum frequency to plot, default 1024 Hz')
 parser.add_argument('-m','--master', type=str, default='MASTER_OUT',
                         help='Type of drive channel to use.')
 parser.add_argument('-n','--noisemon', type=str, default='NOISEMON',
@@ -36,6 +41,9 @@ ifo = args.ifo
 channel_stem_lst = [line.split() for line in open(args.channels)]
 quadrants = ['LL','LR','UR','UL']
 
+fmin = args.fmin or 1./args.fftlen
+fmax = args.fmax
+
 if args.frame:
     conn = datafind.GWDataFindHTTPConnection()
     cache = conn.find_frame_urls(ifo[0], args.frame, st, et, urltype='file')
@@ -47,8 +55,8 @@ def make_channel_pairs(optic, level):
     prefix = '%s:SUS-%s_%s' % (ifo, optic, level)
     for quadrant in quadrants:
         channel_pairs.append(
-                    ("%s_%s_%s_DQ" % (prefix, args.master, quadrant),
-                        "%s_%s_%s_DQ" % (prefix, args.noisemon, quadrant)))
+                    ("%s_%s_%s_DQ" % (prefix, args.noisemon, quadrant),
+                        "%s_%s_%s_DQ" % (prefix, args.master, quadrant)))
     return channel_pairs
 
 def flatten(list_of_pairs):
@@ -74,32 +82,41 @@ with PdfPages(args.output) as pdf:
         channel_pairs = make_channel_pairs(optic, level)
         data_dict = get_data(channel_pairs)
 
-        plt.figure()
-        plt.title('%s %s coherence of %s with %s' % (optic,level,
-                                                        args.master,
-                                                        args.noisemon))
+        fig, (ax1, ax2, ax3) = plt.subplots(3, figsize=(8,11.5))
 
-        try:
-            for quad, (chan1, chan2) in zip(quadrants, channel_pairs):
-                data1 = data_dict[chan1]
-                data2 = data_dict[chan2]
-            
-                this_coh = data2.coherence(data1, args.fftlen,
-                                                    args.fftlen*args.overlap)
+        for quad, (chan1, chan2) in zip(quadrants, channel_pairs):
+            data1 = data_dict[chan1]
+            data2 = data_dict[chan2]
 
-                freqs = this_coh.frequencies.value
-                vals = this_coh.value
-                print quad, min(freqs), max(freqs), min(vals), max(vals)
-                plt.plot(this_coh.frequencies.value, this_coh.value, label=quad)
+            if std(data1.value) == 0. or std(data2.value) == 0.:
+                print quad, 'is all zeros'
+                continue
+
+            this_coh = data2.coherence(data1, args.fftlen,
+                                                args.fftlen*args.overlap)
+            asd1 = data1.asd(args.fftlen, args.fftlen*args.overlap)
+            asd2 = data2.asd(args.fftlen, args.fftlen*args.overlap)
+
+            freqs = this_coh.frequencies.value
+            vals = this_coh.value
+            print quad, min(freqs), max(freqs), min(vals), max(vals)
+
+            ax1.loglog(asd1.frequencies.value, asd1.value, label=quad)
+            ax2.semilogx(this_coh.frequencies.value, this_coh.value, label=quad)
+            ax3.loglog(asd2.frequencies.value, asd2.value, label=quad)
+
+        ax1.set_xlim(fmin, fmax)
         
-            plt.xscale('log')
-            plt.ylim(0., 1.05)
-            plt.xlim(0.1, data1.sample_rate.value/2.)
-            plt.legend(loc="lower left")
-        except:
-            print "Cannot plot %s, skipping" % quad
-            plt.close()
-            continue
+        title_leader = "%s:SUS-%s_%s " % (ifo, optic, level)
+        ax1.set_title(title_leader + args.noisemon)
+        ax1.legend(loc='lower left', fontsize='small')
+        
+        ax2.set_title(title_leader + 'coherence')
+        ax2.legend(loc='lower left', fontsize='small')
+        ax2.set_ylim(0., 1.01)
+        
+        ax3.set_title(title_leader + args.master)
+        ax3.legend(loc='lower left', fontsize='small')
 
         pdf.savefig()
         plt.close()
