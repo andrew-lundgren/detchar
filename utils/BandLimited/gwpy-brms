@@ -1,0 +1,45 @@
+#!/usr/bin/env python
+from __future__ import division
+from gwpy.timeseries import TimeSeries
+import numpy
+import argparse
+
+filter_pad = 3 # Extra data at start to avoid filter transients
+
+parser = argparse.ArgumentParser(description='Calculate a band-limited RMS of a channel using NDS.')
+parser.add_argument('-c', '--chan', type=str, help='Channel', required=True)
+parser.add_argument('-s','--start', type=int, help='GPS start time.', required=True)
+parser.add_argument('-e','--end', type=int, help='GPS end time', required=True)
+parser.add_argument('-l','--flower', type=float, help='Lower frequency of bandpass (Hz)', required=True)
+parser.add_argument('-u','--fupper', type=float, help='Upper frequency of bandpass (Hz)', required=True)
+parser.add_argument('-r','--stride', type=str, default='1', help='Stride of the output time series in seconds. Fractional expressions are allowed, e.g. 1/16.')
+parser.add_argument('-p','--plot', type=str, help='Plot BRMS to file')
+parser.add_argument('-o','--output', type=str, help='Output BRMS to a CSV file')
+parser.add_argument('-t','--threshold', type=float, help='Print GPS times when BRMS is above a value')
+
+args = parser.parse_args()
+
+stride = float(eval(args.stride))
+
+data = TimeSeries.fetch(args.chan, args.start-filter_pad, args.end)
+bpdata = data.bandpass(args.flower,args.fupper)
+bpdata = bpdata[int(filter_pad*data.sample_rate.value):]
+brms = bpdata.rms(stride)
+
+if args.plot:
+    plt = brms.plot()
+    plt.set_title('BLRMS %.1f to %.1f Hz, %s sec stride' % (args.flower, args.fupper, args.stride))
+    plt.gca().legend()
+    if args.threshold:
+        plt.gca().axhline(args.threshold, color='y', ls='-')
+    plt.savefig(args.plot)
+
+if args.output:
+    brms.write(args.output)
+
+if args.threshold:
+    indices = numpy.nonzero(brms >= args.threshold)[0]
+    times = float(brms.epoch.gps) + brms.dt.value*(indices+0.5)
+    for tt,idx in zip(times,indices):
+        print "%.4f %.3f" % (tt, brms[idx])
+

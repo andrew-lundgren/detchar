@@ -1,0 +1,63 @@
+#!/usr/bin/env python
+from __future__ import division
+from gwpy.timeseries import TimeSeries
+from gwpy.plotter import TimeSeriesPlot
+from numpy import *
+import argparse
+
+filter_pad = 8 # Extra data at start to avoid filter transients
+
+parser = argparse.ArgumentParser(description='Calculate a band-limited RMS of a channel using NDS.')
+parser.add_argument('-c','--chan', type=str, help='Channel', required=True)
+parser.add_argument('-s','--start', type=int, help='GPS start time.', required=True)
+parser.add_argument('-e','--end', type=int, help='GPS end time', required=True)
+parser.add_argument('-f','--fhet', type=float, help='Heterodyne frequency (Hz)', required=True)
+parser.add_argument('-l','--fpass', type=float, help='Lowpass frequency (Hz)', required=True)
+parser.add_argument('-o','--output', type=str, help='Output plot')
+
+args = parser.parse_args()
+
+data = TimeSeries.fetch(args.chan, args.start-filter_pad, args.end)
+data = data.decimate(4)
+epoch = data.epoch.gps
+srate = data.sample_rate.value
+times = arange(len(data))/srate
+data = array(data.tolist())
+
+cdata = data*cos(2.*pi*args.fhet*times)
+sdata = data*sin(2.*pi*args.fhet*times)
+
+cdata=TimeSeries(cdata, sample_rate=srate, epoch=epoch)
+sdata=TimeSeries(sdata, sample_rate=srate, epoch=epoch)
+
+cdata = cdata.lowpass(args.fpass)
+cdata = cdata.lowpass(args.fpass)
+sdata = sdata.lowpass(args.fpass)
+sdata = sdata.lowpass(args.fpass)
+
+cdata = cdata[int(filter_pad*srate):]
+sdata = sdata[int(filter_pad*srate):]
+
+ctmp=array(cdata.tolist())
+stmp=array(sdata.tolist())
+amp=sqrt(ctmp*ctmp+stmp*stmp)
+amp = TimeSeries(amp, sample_rate=srate, epoch=epoch+filter_pad)
+phase = TimeSeries(arctan2(stmp, ctmp), sample_rate=srate, epoch=epoch+filter_pad)
+
+innov = sqrt((ctmp[1:]-ctmp[:-1])**2 + (stmp[1:]-stmp[:-1])**2)
+innov = TimeSeries(innov, sample_rate=srate, epoch=epoch+filter_pad)
+if False:
+    plt = amp.plot()
+    ax = plt.gca()
+    ax.plot(cdata)
+    ax.plot(sdata)
+    #ax.legend()
+
+#plt = TimeSeriesPlot(amp,phase)
+plt = amp.plot()
+plt.gca().set_title('Heterodyne at %.2f, lowpass %.2f' % (args.fhet, args.fpass))
+plt.show()
+
+if args.output:
+    plt.savefig(args.output)
+
