@@ -1,0 +1,99 @@
+#!/usr/bin/env python
+from gwpy.timeseries import TimeSeriesDict
+from gwpy.segments import Segment,SegmentList, DataQualityFlag,DataQualityDict
+from glue.datafind import GWDataFindHTTPConnection
+from numpy import *
+import argparse
+
+parser = argparse.ArgumentParser(description='Check whether any channels in a list change their value during the given time')
+parser.add_argument('-i', '--ifo', type=str, help='IFO', required=True)
+parser.add_argument('-s','--start', type=int, help='GPS start time.', required=True)
+parser.add_argument('-e','--end', type=int, help='GPS end time', required=True)
+parser.add_argument('-r','--stride', type=int, default=1800,
+                    help='Number of seconds of data to grab at a time')
+parser.add_argument('-c', '--config', type=str, required=True,
+                    help='Configuration file consisting of space-separated '
+                    'columns (can be output of FrChanels). '
+                    'First column is channel (IFO will be ignored if present).')
+parser.add_argument('-o','--output',type=str,help='Output file. If not present,'
+                            ' human-readable information is printed to screen.')
+
+args = parser.parse_args()
+
+# Create short names for important args
+ifo = args.ifo
+gps_start,gps_end = args.start,args.end
+
+def chunk_through_segment(seg, chunk_size):
+    temp = range(int(seg[0]), int(seg[1]), chunk_size)
+    temp.append(int(seg[1]))
+    return zip(temp[:-1], temp[1:])
+
+def channame(line):
+    return (line.split()[0]).split(':')[-1]
+
+# Read the config file, create full channel and flag names
+config = [channame(line) for line in open(args.config)]
+chans = ['%s:%s' % (ifo, entry) for entry in config]
+# FIXME: Have to fix up the flagname if we want to make a DQ flag
+flagnames = ['%s:%s:1' % (ifo, entry) for entry in config]
+# List of lists to store overflow times
+all_changes = [list() for entry in config]
+
+# Query datafind server
+# The error handling seems pretty twitchy, so if there's a problem
+# best to just fail and let the user debug it
+df = GWDataFindHTTPConnection()
+cache = df.find_frame_urls(ifo[0], '%s_R' % ifo, urltype='file',
+                            gpsstart=gps_start, gpsend=gps_end)
+
+requested_data = SegmentList([Segment(gps_start, gps_end)])
+known_data = cache.to_segmentlistdict()[ifo[0]]
+known_data = requested_data & known_data
+
+unknown = []
+for seg in known_data:
+    # Remember sample at end of chunk
+    last_sample = dict([(chan, None) for chan in chans])
+    for st,et in chunk_through_segment(seg, args.stride):
+        print "Fetching data for", st, et
+        try:
+            datadict = TimeSeriesDict.read(cache, chans, st, et, nproc=4)
+        except RuntimeError:
+            unknown.append(Segment(st,et))
+            print "Unable to get data - unknown segment", st, et
+            continue
+        for chan, change in zip(chans, all_changes):
+            dt = 1./float(datadict[chan].sample_rate.value)
+            data = (datadict[chan]).value
+            if last_sample[chan] and data[0] != last_sample[chan]:
+                change.append(Segment(st-dt,st+dt))
+            jumps = nonzero(data[1:]-data[:-1])[0]
+            change.extend([Segment(st+dt*idx,st+dt*(idx+2)) for idx in jumps])
+            last_sample[chan] = data[-1]
+
+known = known_data - SegmentList(unknown)
+known.coalesce()
+
+# FIXME: Convert this to writing DQ triggers
+if not args.output:
+    for flagname, change in zip(flagnames, all_changes):
+        if len(change): 
+            print "\n=== %s ===" % flagname
+            temp = SegmentList(change)
+            temp.coalesce()
+            for tt in temp:
+                print " %10.4f %10.4f" % (tt[0],tt[1])
+
+
+# Change this if we need to write XML flags
+exit()
+dqdict = DataQualityDict()
+for flagname, overflow in zip(flagnames, all_overflows):
+    active = SegmentList(overflow)
+    new_flag = DataQualityFlag(name=flagname, active=active, known=known,
+                                isgood=False)
+    dqdict[flagname] = new_flag
+
+dqdict.write(args.output, format='ligolw')
+
