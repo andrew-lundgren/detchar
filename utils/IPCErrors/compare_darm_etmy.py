@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 from gwpy.timeseries import TimeSeries
 from numpy import *
 import sys
