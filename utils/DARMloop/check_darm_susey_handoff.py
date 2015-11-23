@@ -3,7 +3,7 @@ from numpy import *
 import sys
 
 ifo = 'L1'
-f_cal = 33.7
+f_cal = {'L1': 33.7, 'H1': 37.3}[ifo]
 pad = 8
 st = int(sys.argv[1]) - pad
 dur = 2*pad
