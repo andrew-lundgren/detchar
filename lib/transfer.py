@@ -26,7 +26,7 @@ def measure_transfer_function(source, target, tlen, tstride):
 
     crosspower = Spectrum(zeros(flen, dtype=complex128), df=1./tlen)
     sourcepower = Spectrum(zeros(flen, dtype=complex128), df=1./tlen)
-    tstarts = range(0,int(target.duration.value-tlen), tstride)
+    tstarts = arange(0,target.duration.value-tlen, tstride)
     for tt in tstarts:
         tmp1 = fft(target[int(srate1*tt):int(srate1*(tt+tlen))])
         tmp2 = fft(source[int(srate2*tt):int(srate2*(tt+tlen))])
