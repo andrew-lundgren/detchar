@@ -55,7 +55,7 @@ def subtract(target, witness, tf):
 
     result=target.detrend().value-irfft(tf_long*tmp)
 
-    pad=ceil(tmp_len/2./srate)
+    pad=np.ceil(tmp_len/2./srate)
     return TimeSeries(result[int(pad*srate):-int(pad*srate)],
                         sample_rate=target.sample_rate,
                         name='%s minus %s' % (target.name,witness.name),
