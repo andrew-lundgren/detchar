@@ -62,3 +62,38 @@ def subtract(target, witness, tf):
                         name='%s minus %s' % (target.name,witness.name),
                         epoch=target.epoch.gps+pad)
 
+def bp_chunk(ts, new_srate, f_low, f_high):
+    srate=int(ts.sample_rate.value)
+    bp=sig.firwin(4*srate,[f_low, f_high],nyq=srate/2.,window='hann',pass_zero=False)
+    bp.resize(len(ts))
+    tmp=(2.*new_srate/float(srate))*abs(rfft(bp))*rfft(ts)
+    padidx=4*int(new_srate) # Sample rate after irfft is twice desired
+    return TimeSeries(irfft(tmp[:1+int(ts.duration.value*new_srate)])[padidx:-padidx:2],
+                        sample_rate=new_srate,epoch=ts.epoch.gps+2)
+
+def _split_thirds(somearr):
+    skip=len(somearr)/3
+    return np.concatenate([somearr[:skip],somearr[-skip:]])
+
+def _smooth_mid(myarr):
+    skip=len(myarr)/3
+    xarr=np.linspace(-1.,1.,3*skip)
+    a,b,c=np.polyfit(_split_thirds(xarr),
+                     _split_thirds(myarr),
+                     2)
+    myarr[skip:-skip]=a*xarr[skip:-skip]*xarr[skip:-skip]+b*xarr[skip:-skip]+c
+    
+def clean_tf(mytf,f1,f2):
+    assert f2 > f1
+    df=mytf.df.value
+    idx1,idx2 = int(f1/df), int(f2/df)
+    width=idx2-idx1
+    idx0,idx3 = idx1-width, idx2+width
+    
+    result=mytf.copy()
+    
+    _smooth_mid(result.real[idx0:idx3])
+    _smooth_mid(result.imag[idx0:idx3])
+    
+    return result
+
