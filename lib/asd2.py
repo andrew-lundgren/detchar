@@ -46,16 +46,17 @@ def subtract(target, witness, tf):
 
     tmp=irfft(tf)
     tmp_len=len(tmp)
-    tmp=sig.tukey(tmp_len,0.04)*np.roll(tmp, tmp_len/2)
-    tmp.resize(tlen) # pad with zeros to length of data
+    tmp=sig.hann(tmp_len)*np.roll(tmp, tmp_len/2)
+    tmp.resize(len(witness)) # pad with zeros to length of witness
     tf_long=rfft(np.roll(tmp, -tmp_len/2))
 
-    tmp=rfft(witness.detrend().value)
+    tmp=rfft(witness.astype(np.float64).value)*tf_long
     tmp.resize(flen)
 
-    result=target.detrend().value-irfft(tf_long*tmp)
+    result=target.value-irfft((srate/float(witness.sample_rate.value))*tmp)
 
-    pad=np.ceil(tmp_len/2./srate)
+    pad=int(np.ceil(0.5/tf.df.value))
+    print pad, srate
     return TimeSeries(result[int(pad*srate):-int(pad*srate)],
                         sample_rate=target.sample_rate,
                         name='%s minus %s' % (target.name,witness.name),
