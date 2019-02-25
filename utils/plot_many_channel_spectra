@@ -27,8 +27,15 @@ args = parser.parse_args()
 st = args.start
 et = st+args.duration
 
-channels = [line.split()[0] for line in open(args.channels)]
+channels = []
+for line in open(args.channels):
+    tmp = line.split()
+    if int(tmp[-1]) > 16:
+        channels.append(tmp[0])
+
 ifo = channels[0][:2]
+
+print '%u channels faster than 16 Hz' % len(channels,)
 
 if args.frame:
     data_dict = TimeSeriesDict.get(channels, frametype=args.frame,                                start=st, end=et, nproc=4)
