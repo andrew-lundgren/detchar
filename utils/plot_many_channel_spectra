@@ -11,6 +11,8 @@ parser.add_argument('-d','--duration', type=int, required=True,
 parser.add_argument('-c', '--channels', type=str, required=True,
                         help='Text file containing list of channels in the '
                             'first column (e.g., the output of FrChannels).')
+parser.add_argument('-r','--reference', type=int,
+                        help='GPS start time for a reference time.')
 parser.add_argument('-f','--frame', type=str,
                         help='Do a datafind for this frame type. If not '
                             'provided, use NDS to get data.')
@@ -30,12 +32,23 @@ channels = [line.split()[0] for line in open(args.channels)]
 ifo = channels[0][:2]
 
 if args.frame:
-    conn = datafind.GWDataFindHTTPConnection()
-    cache = conn.find_frame_urls(ifo[0], args.frame, st, et, urltype='file')
-    data_dict = TimeSeriesDict.read(cache, channels, start=st, end=et, nproc=4)
+    data_dict = TimeSeriesDict.get(channels, frametype=args.frame,                                start=st, end=et, nproc=4)
 else:
     data_dict = TimeSeriesDict.fetch(channels, st, et)
+    
+if args.reference:
+    st1 = args.reference
+    et1 = st1 + args.duration
+    if args.frame:
+        ref_dict = TimeSeriesDict.get(channels, frametype=args.frame,
+                                        start=st1, end=et1, nproc=4)
+    else:
+        ref_dict = TimeSeriesDict.fetch(channels, st1, et1)
+else:
+    ref_dict = None
 
+from matplotlib import use
+use('Agg')
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 
@@ -43,9 +56,13 @@ with PdfPages(args.output) as pdf:
     for chan, data in data_dict.iteritems():
         print "Plotting", chan
         my_asd = data.asd(args.fftlen,args.fftlen*args.overlap)
+        if ref_dict:
+            ref_asd = ref_dict[chan].asd(args.fftlen,args.fftlen*args.overlap)
         plt.figure()
         plt.title(chan)
         plt.loglog(my_asd.frequencies.value, my_asd.value)
+        if ref_dict:
+            plt.loglog(ref_asd.frequencies.value, ref_asd.value)
         plt.axvline(60.,c='y',ls=':')
         plt.axvline(120.,c='y',ls=':')
         plt.xlim(4., data.sample_rate.value/2.)
