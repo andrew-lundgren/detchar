@@ -59,8 +59,9 @@ from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 
 with PdfPages(args.output) as pdf:
-    for chan, data in data_dict.iteritems():
+    for chan in sorted(channels):
         print "Plotting", chan
+        data = data_dict[chan]
         my_asd = data.asd(args.fftlen,args.fftlen*args.overlap)
         if ref_dict:
             ref_asd = ref_dict[chan].asd(args.fftlen,args.fftlen*args.overlap)
