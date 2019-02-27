@@ -67,6 +67,8 @@ with PdfPages(args.output) as pdf:
             ref_asd = ref_dict[chan].asd(args.fftlen,args.fftlen*args.overlap)
         plt.figure()
         plt.title(chan)
+        plt.xlabel('Frequency [Hz]')
+        plt.xlabel('ASD [Counts/rt(Hz)]')
         plt.loglog(my_asd.frequencies.value, my_asd.value)
         if ref_dict:
             plt.loglog(ref_asd.frequencies.value, ref_asd.value)
