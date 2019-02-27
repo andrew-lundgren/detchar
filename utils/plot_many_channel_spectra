@@ -67,12 +67,13 @@ with PdfPages(args.output) as pdf:
             ref_asd = ref_dict[chan].asd(args.fftlen,args.fftlen*args.overlap)
         plt.figure()
         plt.title(chan)
-        plt.loglog(my_asd.frequencies.value, my_asd.value)
+        plt.loglog(my_asd.frequencies.value, my_asd.value, label='Test')
         if ref_dict:
-            plt.loglog(ref_asd.frequencies.value, ref_asd.value)
+            plt.loglog(ref_asd.frequencies.value, ref_asd.value, label='Reference')
         plt.axvline(60.,c='y',ls=':')
         plt.axvline(120.,c='y',ls=':')
         plt.xlim(4., data.sample_rate.value/2.)
+        plt.legend(loc='upper right')
         pdf.savefig()
         plt.close()
 
